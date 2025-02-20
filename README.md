@@ -1,7 +1,7 @@
 # Technical & Fundamental Analysis in Stock Market Prediction
 
 <p align="center">
-  <img src="Images/Logo_CentraleSupélec.png" width="30%" alt="Logo CentraleSupélec"/>
+  <img src="logo cs.jpg" width="90%" alt="Logo CentraleSupélec"/>
 </p>
 
 <div align="center">
