@@ -73,43 +73,39 @@ We use **EarlyStopping** and **ReduceLROnPlateau** to monitor the validation los
 
 ### TCN One-Day-Ahead Prediction
 
-The TCN-based model, trained with a window of 1000 days to predict the next day’s closing price, converged steadily. The training and validation loss curves (plotted on a logarithmic scale) illustrate the learning process.
+The TCN-based model, trained with a window of 2000 days to predict the next day’s closing price, converged steadily. The training and validation loss curves (plotted on a logarithmic scale) illustrate the learning process.
 
-![TCN Loss Curve](Images/TCN_one_day/TCN_2000_loss.png)
+![TCN Loss Curve](TCN_model/plots/TCN_2000_loss.png)
 
 The prediction plot shows that the TCN model captures the main trend of the stock price:
 
-![TCN Prediction](Images/TCN_one_day/TCN_2000_pred.png)
+![TCN Prediction](TCN_model/plots/TCN_2000_pred.png)
 
 *Performance example for the TCN model:*  
 - **MAE:** 0.04  
-- **R²:** 0.87  
-- **Accuracy (5% tolerance):** 74.03%
+- **R²:** 0.54  
+- **Accuracy (5% tolerance):** 93.51%
 
 ### Hybrid TCN + LSTM Model
 
 By integrating LSTM layers with the TCN block, our hybrid model further improves performance. The first LSTM layer processes the input sequence, the TCN block extracts robust temporal features, and a second LSTM layer refines the representation before the final prediction.
 
-![Hybrid Model Prediction](Images/TCN_LSTM/TCN_LSTM_pred.png)
+![Hybrid Model Loss](TCN_LSTM_hybrid_model/plots/TCN_LSTM_loss.png)
+![Hybrid Model Prediction](TCN_LSTM_hybrid_model/plots/TCN_LSTM_pred.png)
 
-*Performance of the hybrid model for one-day-ahead prediction (example for Day 1):*  
-- **MAE:** 0.0070  
-- **R²:** 0.9804  
-- **Accuracy (5% tolerance):** 97.67%
 
-Additionally, our training curves indicate smooth convergence without significant overfitting.
+Additionally, our training curves indicate convergence (noisy) without significant overfitting.
 
 ## Conclusion
 
-This study demonstrates that while a simple LSTM can predict stock prices with reasonable accuracy in the short term, the use of TCNs—especially when combined with LSTM layers in a hybrid architecture—can significantly improve performance by capturing both long- and short-term dependencies.
+This study tends to show that the use of TCNs—especially when combined with LSTM layers in a hybrid architecture—can improve performance by capturing both long- and short-term dependencies.
 
-The TCN’s causal and dilated convolutions enable it to efficiently extract temporal patterns, and when coupled with the LSTM’s capacity to model sequential dynamics, the hybrid model delivers superior accuracy and reliability. Future work may explore further parameter tuning (e.g., adjusting kernel size, dilation rates, and the number of stacks) and the integration of fundamental data for long-term forecasting.
+The TCN’s causal and dilated convolutions enable it to efficiently extract temporal patterns, and when coupled with the LSTM’s capacity to model sequential dynamics, the hybrid model delivers pretty good accuracy. 
+Future work may explore further parameter tuning (e.g., adjusting kernel size, dilation rates, and the number of stacks) and the integration of fundamental data for long-term forecasting
 
-For more details and code, please refer to our [GitHub repository](https://github.com/L4ncelin/technical_and_fundamental_analysis_in_stock_market/tree/master).
 
 ## References
 
-- [Evaluation of Classifiers for Stock Market Prediction](#)
-- [Comparison of Models for Financial Forecasting](#)
-- [Financial Sentiment Analysis using Language Models](#)
+- [TCN Python Class by Philippe Remy](https://github.com/philipperemy/keras-tcn/tree/master/tcn)
+- [NASDAQ-100 Stock Price Data](https://www.kaggle.com/datasets/kalilurrahman/nasdaq100-stock-price-data)
 
