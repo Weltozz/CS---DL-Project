@@ -80,7 +80,7 @@ def NN_MODEL(input_shape, learning_rate=0.0005):
     return model
 
 def main():
-    df = pd.read_csv("/Users/welto/PycharmProjects/company_brandname/technical-and-fundamental-analysis-on-stock-markets/Datasets/NASDAQ_100.csv")
+    df = pd.read_csv("/Datasets/NASDAQ_100.csv")
     
     close_prices = df['close'].values.reshape(-1, 1)
 

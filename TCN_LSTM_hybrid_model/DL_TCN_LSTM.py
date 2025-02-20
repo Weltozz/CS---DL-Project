@@ -1,68 +1,59 @@
+#%%
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow as tf
 
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras import Input, models, layers, regularizers
+from tensorflow.keras import Input, Model, layers, regularizers
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from tensorflow.keras.layers import BatchNormalization
-from tcn import TCN
 
+def TCN_SimpleBlock(input_shape, num_filters=32, kernel_size=2, dropout_rate=0.2):
+    inputs = tf.keras.Input(shape=input_shape)
 
-def R2(y_true, y_pred):
-    ss_res = tf.reduce_sum(
-        tf.square(y_true - y_pred)
-    )
-    ss_tot = tf.reduce_sum(
-        tf.square(y_true - tf.reduce_mean(y_true))
-    )
+    x = layers.Conv1D(
+        filters=num_filters,
+        kernel_size=kernel_size,
+        padding='causal',
+        activation='relu'
+    )(inputs)
+    x = layers.Dropout(dropout_rate)(x)
 
-    return 1 - ss_res / ss_tot
+    x = layers.Conv1D(
+        filters=num_filters,
+        kernel_size=kernel_size,
+        padding='causal',
+        activation='relu'
+    )(x)
+    x = layers.Dropout(dropout_rate)(x)
 
+    # Connexion résiduelle
+    if inputs.shape[-1] != x.shape[-1]:
+        inputs_res = layers.Conv1D(num_filters, kernel_size=1, padding='same')(inputs)
+    else:
+        inputs_res = inputs
 
-def ACCURACY_5(y_true, y_pred):
-    # Erreur relative : |y_true - y_pred| / (|y_true| + epsilon) on evite les divisions par 0
-    error = tf.abs(
-        (y_true - y_pred) / (tf.abs(y_true))
-    )
-    correct = tf.cast(
-        error <= 0.05,
-        tf.float32
-    )
+    x = layers.Add()([inputs_res, x])
+    x = layers.Activation('relu')(x)
 
-    return tf.reduce_mean(correct)
-def NN_MODEL(input_shape, learning_rate=0.0005):
-    model = models.Sequential([
-        layers.Input(shape=input_shape),
+    model = Model(inputs, x, name="TCN")
+    return model
 
-        TCN(
-            nb_filters=2,
-            kernel_size=1,
-            nb_stacks=1,
-            dilations=[1, 2, 4, 8],
-            padding='causal',
-            dropout_rate=0.2,
-            return_sequences=False
-        ),
+def build_hybrid_model(input_shape, tcn_filters=32, lstm_units=50, dropout_rate=0.2, learning_rate=0.0005):
+    inputs = Input(shape=input_shape)
 
-        BatchNormalization(),
+    tcn_out = TCN_SimpleBlock(input_shape=input_shape,
+                              num_filters=tcn_filters,
+                              kernel_size=2,
+                              dropout_rate=dropout_rate)(inputs)
 
-        layers.Dense(1)
-    ])
+    lstm_out = layers.LSTM(lstm_units)(tcn_out)
 
+    outputs = layers.Dense(1, activation='linear')(lstm_out)
+
+    model = Model(inputs, outputs, name="Hybrid_TCN_LSTM_Model")
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-
-    model.compile(
-        optimizer=optimizer,
-        loss='mean_squared_error',
-        metrics=[
-            'mean_absolute_error',
-            R2,
-            ACCURACY_5
-        ]
-    )
-
+    model.compile(optimizer=optimizer, loss='mean_squared_error')
     return model
 
 def create_sequences(values, sequence_length=60):
@@ -77,7 +68,7 @@ def create_sequences(values, sequence_length=60):
     return X, y
 
 def main():
-    df = pd.read_csv("/Users/welto/Library/CloudStorage/OneDrive-CentraleSupelec/3A/DL/Project/NASDAQ_100.csv")
+    df = pd.read_csv("/Datasets/NASDAQ_100.csv")
     close_prices = df['close'].values.reshape(-1, 1)
     
     scaler = MinMaxScaler()
@@ -96,8 +87,11 @@ def main():
     print("Val  :", X_val.shape, y_val.shape)
     print("Test        :", X_test.shape, y_test.shape)
     
-    model = NN_MODEL(
+    model = build_hybrid_model(
         input_shape=(sequence_length, 1),
+        tcn_filters=32,
+        lstm_units=50,
+        dropout_rate=0.2,
         learning_rate=0.0005
     )
     model.summary()
@@ -141,4 +135,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
