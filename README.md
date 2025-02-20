@@ -1,0 +1,1 @@
+# technical-and-fundamental-analysis-on-stock-markets
