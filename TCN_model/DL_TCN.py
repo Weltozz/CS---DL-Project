@@ -53,17 +53,15 @@ def NN_MODEL(input_shape, learning_rate=0.0005):
         layers.Input(shape=input_shape),
         
         TCN(
-            nb_filters=6,
-            kernel_size=1,
+            nb_filters=16,
+            kernel_size=2,
             nb_stacks=1,
             dilations=[1, 2, 4, 8],
             padding='causal',
             dropout_rate=0.2,
             return_sequences=False
         ),
-        
         BatchNormalization(),
-        
         layers.Dense(1)
     ])
 
@@ -82,7 +80,7 @@ def NN_MODEL(input_shape, learning_rate=0.0005):
     return model
 
 def main():
-    df = pd.read_csv("Datasets/NASDAQ_100.csv")
+    df = pd.read_csv("/Users/welto/PycharmProjects/company_brandname/technical-and-fundamental-analysis-on-stock-markets/Datasets/NASDAQ_100.csv")
     
     close_prices = df['close'].values.reshape(-1, 1)
 
@@ -114,7 +112,7 @@ def main():
 
     early_stopping = EarlyStopping(
         monitor='val_loss',
-        patience=10,
+        patience=15,
         restore_best_weights=True
     ) # on arrete l'entrainement si la loss ne diminue plus sur plusieurs epochs
 
@@ -128,10 +126,10 @@ def main():
     history = model.fit(
         X_train, y_train,
         epochs=100,
-        batch_size=32,
+        batch_size=16,
         validation_data=(X_val, y_val),
         callbacks=[
-            early_stopping,
+            #early_stopping,
             reduce_lr
         ]
     )
@@ -165,7 +163,6 @@ def main():
     plt.title("TCN Predictions vs Real values")
     plt.legend()
     plt.show()
-
 
 if __name__ == "__main__":
     main()
