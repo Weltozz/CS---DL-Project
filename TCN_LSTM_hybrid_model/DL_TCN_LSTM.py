@@ -1,137 +1,224 @@
-#%%
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow as tf
+import ta
 
-from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras import Input, Model, layers, regularizers
+from keras.src.layers import BatchNormalization
+from requests.packages import target
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from tensorflow.keras import layers, models, Input, Model, regularizers
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras.layers import Dropout, Conv1D, BatchNormalization
+from tensorflow.models import LSTM
+from tcn import TCN
+from sklearn.metrics import r2_score, mean_absolute_error
 
-def TCN_SimpleBlock(input_shape, num_filters=32, kernel_size=2, dropout_rate=0.2):
-    inputs = tf.keras.Input(shape=input_shape)
 
-    x = layers.Conv1D(
-        filters=num_filters,
-        kernel_size=kernel_size,
-        padding='causal',
-        activation='relu'
-    )(inputs)
-    x = layers.Dropout(dropout_rate)(x)
+def R2(y_true, y_pred):
+    ss_res = tf.reduce_sum(
+        tf.square(y_true - y_pred)
+    )
+    ss_tot = tf.reduce_sum(
+        tf.square(y_true - tf.reduce_mean(y_true))
+    )
 
-    x = layers.Conv1D(
-        filters=num_filters,
-        kernel_size=kernel_size,
-        padding='causal',
-        activation='relu'
-    )(x)
-    x = layers.Dropout(dropout_rate)(x)
+    return 1 - ss_res / (ss_tot + tf.keras.backend.epsilon())  # sss_tot
 
-    # Connexion résiduelle
-    if inputs.shape[-1] != x.shape[-1]:
-        inputs_res = layers.Conv1D(num_filters, kernel_size=1, padding='same')(inputs)
-    else:
-        inputs_res = inputs
 
-    x = layers.Add()([inputs_res, x])
-    x = layers.Activation('relu')(x)
+def ACCURACY_5(y_true, y_pred):
+    # Erreur relative : |y_true - y_pred| / (|y_true| + epsilon) on evite les divisions par 0
+    error = tf.abs(
+        (y_true - y_pred) / (tf.abs(y_true) + tf.keras.backend.epsilon())
+    )
+    correct = tf.cast(
+        error <= 0.05,
+        tf.float32
+    )
 
-    model = Model(inputs, x, name="TCN")
-    return model
+    return tf.reduce_mean(correct)
 
-def build_hybrid_model(input_shape, tcn_filters=32, lstm_units=50, dropout_rate=0.2, learning_rate=0.0005):
-    inputs = Input(shape=input_shape)
 
-    tcn_out = TCN_SimpleBlock(input_shape=input_shape,
-                              num_filters=tcn_filters,
-                              kernel_size=2,
-                              dropout_rate=dropout_rate)(inputs)
+def CREATE_SEQUENCES(data, sequence_length, target_column='close'):
+    X, y, = [], []
+    for i in range(sequence_length, len(data)):
+        # Extract sequence for features (dropping the target column)
+        features = data.iloc[i - sequence_length:i].filter(
+            items=[col for col in data.columns if col != target_column]
+        ).values
+        X.append(features)
 
-    lstm_out = layers.LSTM(lstm_units)(tcn_out)
+        # Extract future horizon for targets
+        targets = data.iloc[i][target_column]
+        y.append(targets)
 
-    outputs = layers.Dense(1, activation='linear')(lstm_out)
+    return np.array(X), np.array(y)
 
-    model = Model(inputs, outputs, name="Hybrid_TCN_LSTM_Model")
+
+def NN_MODEL(input_shape, learning_rate=0.0005):
+    model = models.Sequential([
+        layers.Input(shape=input_shape),
+
+        TCN(
+            nb_filters=18,
+            kernel_size=2,
+            nb_stacks=1,
+            dilations=[1, 2, 4, 8, 16],
+            padding='causal',
+            dropout_rate=0.2,
+            return_sequences=True
+        ),
+        BatchNormalization(),
+
+        layers.LSTM(64,return_sequences=True),
+        BatchNormalization(),
+
+        TCN(
+            nb_filters=18,
+            kernel_size=2,
+            nb_stacks=1,
+            dilations=[1, 2, 4, 8, 16],
+            padding='causal',
+            dropout_rate=0.2,
+            return_sequences=False
+        ),
+        BatchNormalization(),
+
+        layers.Dense(1)
+    ])
+
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-    model.compile(optimizer=optimizer, loss='mean_squared_error')
+
+    model.compile(
+        optimizer=optimizer,
+        loss='mean_squared_error',
+        metrics=[
+            'mean_absolute_error',
+            R2,
+            ACCURACY_5
+        ]
+    )
+
     return model
 
-def create_sequences(values, sequence_length=60):
-    X, y = [], []
-    for i in range(sequence_length, len(values)):
-        X_window = values[i - sequence_length : i]
-        y_value = values[i]
-        X.append(X_window)
-        y.append(y_value)
-    X = np.array(X)
-    y = np.array(y).reshape(-1, 1)
-    return X, y
 
 def main():
-    df = pd.read_csv("/Datasets/NASDAQ_100.csv")
-    close_prices = df['close'].values.reshape(-1, 1)
-    
-    scaler = MinMaxScaler()
-    scaled_prices = scaler.fit_transform(close_prices)
-    
-    sequence_length = 2000
-    X, y = create_sequences(scaled_prices, sequence_length=sequence_length)
-    print("Shape X :", X.shape, "Shape y :", y.shape)
+    df = pd.read_csv(
+        "/Users/welto/PycharmProjects/company_brandname/technical-and-fundamental-analysis-on-stock-markets/Datasets/NASDAQ_100.csv")
+    df['sma_20'] = df['close'].rolling(window=20).mean()
+    df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
+    df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
+    df['bollinger_upper'] = df['sma_20'] + 2 * df['close'].rolling(window=20).std()
+    df['bollinger_uower'] = df['sma_20'] - 2 * df['close'].rolling(window=20).std()
+
+    df.ffill(inplace=True)
+    df = df.drop(columns=['date'])
+
+    scaler_features = MinMaxScaler()
+    target_scaler = StandardScaler()
+
+    target = pd.DataFrame(
+        target_scaler.fit_transform(df['close'].values.reshape(-1, 1))
+    )
+
+    df = pd.concat(
+        [
+            pd.DataFrame(
+                scaler_features.fit_transform(
+                    df.filter(
+                        items=[col for col in df.columns if col != 'close']
+                    )
+                ),
+                columns=df.filter(
+                    items=[col for col in df.columns if col != 'close']
+                ).columns
+            ),
+            target,
+        ], axis=1
+    ).dropna()
+    df.rename(
+        columns={0: 'close'},
+        inplace=True
+    )
+
+    sequence_length = 2000  # nombre de features pour l'entrainement (nombre de jours d'entrée)
+
+    X, y = CREATE_SEQUENCES(df, sequence_length=sequence_length)
+    print("X shape :", X.shape, "y shape :", y.shape)
 
     train_size = int(len(X) * 0.7)
     val_size = int(len(X) * 0.15)
-    X_train, y_train = X[:train_size], y[:train_size]
-    X_val, y_val = X[train_size:train_size+val_size], y[train_size:train_size+val_size]
-    X_test, y_test = X[train_size+val_size:], y[train_size+val_size:]
-    print("Train :", X_train.shape, y_train.shape)
-    print("Val  :", X_val.shape, y_val.shape)
-    print("Test        :", X_test.shape, y_test.shape)
-    
-    model = build_hybrid_model(
-        input_shape=(sequence_length, 1),
-        tcn_filters=32,
-        lstm_units=50,
-        dropout_rate=0.2,
-        learning_rate=0.0005
-    )
+
+    X_train = X[:train_size]
+    X_val = X[train_size:train_size + val_size]
+    X_test = X[train_size + val_size:]
+
+    y_train = y[:train_size]
+    y_val = y[train_size:train_size + val_size]
+    y_test = y[train_size + val_size:]
+
+    print("Train shapes :", X_train.shape, y_train.shape)
+    print("Val shapes  :", X_val.shape, y_val.shape)
+    print("Test shapes :", X_test.shape, y_test.shape)
+
+    input_shape = (sequence_length, X.shape[-1])
+    model = NN_MODEL(input_shape=input_shape)
     model.summary()
-    
-    early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, verbose=1)
-    
+
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        patience=15,
+        restore_best_weights=True
+    )  # on arrete l'entrainement si la loss ne diminue plus sur plusieurs epochs
+
+    reduce_lr = ReduceLROnPlateau(
+        monitor='val_loss',
+        factor=0.5,
+        patience=5,
+        verbose=1
+    )  # quand la loss ne diminue plus, on baisse le learning rate
+
     history = model.fit(
         X_train, y_train,
-        epochs=100,
+        epochs=80,
         batch_size=16,
         validation_data=(X_val, y_val),
-        callbacks=[early_stopping, reduce_lr]
+        callbacks=[
+            early_stopping,
+            reduce_lr
+        ]
     )
-    
+
     plt.figure(figsize=(10, 5))
-    plt.plot(history.history['loss'], label='Train loss')
-    plt.plot(history.history['val_loss'], label='Val loss')
-    plt.xlabel('Epochs')
+
+    plt.plot(history.history['loss'], label='train loss')
+    plt.plot(history.history['val_loss'], label='Validation loss')
+
+    plt.xlabel('Epoch')
     plt.ylabel('MSE')
-    plt.title('Loss over epochs')
+
+    plt.title("Loss over epochs (TCN)")
+
     plt.legend()
     plt.show()
-    
+
     test_loss = model.evaluate(X_test, y_test)
     print("Test Loss :", test_loss)
-    
+
     y_pred_scaled = model.predict(X_test)
-    y_test_unscaled = scaler.inverse_transform(y_test)
-    y_pred_unscaled = scaler.inverse_transform(y_pred_scaled)
-    
+    y_test_unscaled = target_scaler.inverse_transform(y_test.reshape(-1, 1))
+    y_pred_unscaled = target_scaler.inverse_transform(y_pred_scaled.reshape(-1, 1))
+
     n_plot = 100
     plt.figure(figsize=(10, 5))
-    plt.plot(y_test_unscaled[:n_plot], label='Y test')
-    plt.plot(y_pred_unscaled[:n_plot], label='Y pred')
+    plt.plot(y_test_unscaled[:n_plot], label='y real')
+    plt.plot(y_pred_unscaled[:n_plot], label='y predicted')
     plt.xlabel("Index")
     plt.ylabel("Close price")
-    plt.title("Y test vs Y pred")
+    plt.title("TCN Predictions vs Real values")
     plt.legend()
     plt.show()
+
 
 if __name__ == "__main__":
     main()

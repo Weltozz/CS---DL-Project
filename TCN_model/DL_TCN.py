@@ -2,12 +2,14 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from keras.src.layers import BatchNormalization
+import ta
 
-from sklearn.preprocessing import StandardScaler
+from keras.src.layers import BatchNormalization
+from requests.packages import target
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from tensorflow.keras import layers, models, Input, Model, regularizers
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from tensorflow.keras.layers import Dropout
+from tensorflow.keras.layers import Dropout, Conv1D, BatchNormalization
 from tcn import TCN
 from sklearn.metrics import r2_score, mean_absolute_error
 
@@ -19,13 +21,13 @@ def R2(y_true, y_pred):
         tf.square(y_true - tf.reduce_mean(y_true))
     )
     
-    return 1 - ss_res / ss_tot
+    return 1 - ss_res / (ss_tot + tf.keras.backend.epsilon()) # sss_tot
 
 
 def ACCURACY_5(y_true, y_pred):
     # Erreur relative : |y_true - y_pred| / (|y_true| + epsilon) on evite les divisions par 0
     error = tf.abs(
-        (y_true - y_pred) / (tf.abs(y_true))
+        (y_true - y_pred) / (tf.abs(y_true) + tf.keras.backend.epsilon())
     )
     correct = tf.cast(
         error <= 0.05,
@@ -34,29 +36,29 @@ def ACCURACY_5(y_true, y_pred):
 
     return tf.reduce_mean(correct)
 
-def CREATE_SEQUENCES(values, sequence_length=60):
-    X, y = [], []
-    
-    for i in range(sequence_length, len(values)):
-        X_window = values[i - sequence_length: i]
-        y_value = values[i] 
-        X.append(X_window)
-        y.append(y_value)
-        
-    X = np.array(X)
-    y = np.array(y).reshape(-1, 1)
-    
-    return X, y
+def CREATE_SEQUENCES(data, sequence_length, target_column='close'):
+    X, y, = [], []
+    for i in range(sequence_length, len(data)):
+        # Extract sequence for features (dropping the target column)
+        features = data.iloc[i - sequence_length:i].filter(
+            items=[col for col in data.columns if col != target_column]
+        ).values
+        X.append(features)
 
-def NN_MODEL(input_shape, learning_rate=0.0005):
+        # Extract future horizon for targets
+        targets = data.iloc[i][target_column]
+        y.append(targets)
+
+    return np.array(X), np.array(y)
+
+def NN_MODEL(input_shape, learning_rate=0.05):
     model = models.Sequential([
         layers.Input(shape=input_shape),
-        
         TCN(
-            nb_filters=16,
+            nb_filters=17,
             kernel_size=2,
             nb_stacks=1,
-            dilations=[1, 2, 4, 8],
+            dilations=[1, 2, 4, 8, 16, 32],
             padding='causal',
             dropout_rate=0.2,
             return_sequences=False
@@ -80,16 +82,46 @@ def NN_MODEL(input_shape, learning_rate=0.0005):
     return model
 
 def main():
-    df = pd.read_csv("/Datasets/NASDAQ_100.csv")
-    
-    close_prices = df['close'].values.reshape(-1, 1)
+    df = pd.read_csv("/Users/welto/PycharmProjects/company_brandname/technical-and-fundamental-analysis-on-stock-markets/Datasets/NASDAQ_100.csv")
+    df['sma_20'] = df['close'].rolling(window=20).mean()
+    df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
+    df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
+    df['bollinger_upper'] = df['sma_20'] + 2 * df['close'].rolling(window=20).std()
+    df['bollinger_uower'] = df['sma_20'] - 2 * df['close'].rolling(window=20).std()
 
-    scaler = StandardScaler()
-    scaled_prices = scaler.fit_transform(close_prices)
+    df.ffill(inplace=True)
+    df = df.drop(columns=['date'])
+
+    scaler_features = MinMaxScaler()
+    target_scaler = StandardScaler()
+
+    target = pd.DataFrame(
+        target_scaler.fit_transform(df['close'].values.reshape(-1, 1))
+    )
+
+    df = pd.concat(
+        [
+            pd.DataFrame(
+                scaler_features.fit_transform(
+                    df.filter(
+                        items=[col for col in df.columns if col != 'close']
+                    )
+                ),
+                columns=df.filter(
+                    items=[col for col in df.columns if col != 'close']
+                ).columns
+            ),
+            target,
+        ], axis=1
+    ).dropna()
+    df.rename(
+        columns={0: 'close'},
+        inplace=True
+    )
 
     sequence_length = 2000 # nombre de features pour l'entrainement (nombre de jours d'entrée)
 
-    X, y = CREATE_SEQUENCES(scaled_prices, sequence_length=sequence_length)
+    X, y = CREATE_SEQUENCES(df, sequence_length=sequence_length)
     print("X shape :", X.shape, "y shape :", y.shape)
 
     train_size = int(len(X) * 0.7)
@@ -107,7 +139,8 @@ def main():
     print("Val shapes  :", X_val.shape, y_val.shape)
     print("Test shapes :", X_test.shape, y_test.shape)
 
-    model = NN_MODEL(input_shape=(sequence_length, 1))
+    input_shape = (sequence_length, X.shape[-1])
+    model = NN_MODEL(input_shape=input_shape)
     model.summary()
 
     early_stopping = EarlyStopping(
@@ -125,11 +158,11 @@ def main():
 
     history = model.fit(
         X_train, y_train,
-        epochs=100,
+        epochs=80,
         batch_size=16,
         validation_data=(X_val, y_val),
         callbacks=[
-            #early_stopping,
+            early_stopping,
             reduce_lr
         ]
     )
@@ -151,8 +184,8 @@ def main():
     print("Test Loss :", test_loss)
 
     y_pred_scaled = model.predict(X_test)
-    y_test_unscaled = scaler.inverse_transform(y_test)
-    y_pred_unscaled = scaler.inverse_transform(y_pred_scaled)
+    y_test_unscaled = target_scaler.inverse_transform(y_test.reshape(-1,1))
+    y_pred_unscaled = target_scaler.inverse_transform(y_pred_scaled.reshape(-1,1))
 
     n_plot = 100
     plt.figure(figsize=(10, 5))
