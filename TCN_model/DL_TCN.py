@@ -82,7 +82,7 @@ def NN_MODEL(input_shape, learning_rate=5e-4):
     return model
 
 def main():
-    df = pd.read_csv("/Users/welto/PycharmProjects/company_brandname/technical-and-fundamental-analysis-on-stock-markets/Datasets/NASDAQ_100.csv")
+    df = pd.read_csv("Datasets/NASDAQ_100.csv")
     df['sma_20'] = df['close'].rolling(window=20).mean()
     df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
     df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
