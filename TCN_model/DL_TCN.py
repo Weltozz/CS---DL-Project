@@ -51,12 +51,12 @@ def CREATE_SEQUENCES(data, sequence_length, target_column='close'):
 
     return np.array(X), np.array(y)
 
-def NN_MODEL(input_shape, learning_rate=0.05):
+def NN_MODEL(input_shape, learning_rate=5e-4):
     model = models.Sequential([
         layers.Input(shape=input_shape),
         TCN(
-            nb_filters=17,
-            kernel_size=2,
+            nb_filters=30,
+            kernel_size=3,
             nb_stacks=1,
             dilations=[1, 2, 4, 8, 16, 32],
             padding='causal',
@@ -119,7 +119,7 @@ def main():
         inplace=True
     )
 
-    sequence_length = 2000 # nombre de features pour l'entrainement (nombre de jours d'entrée)
+    sequence_length = 10 # nombre de features pour l'entrainement (nombre de jours d'entrée)
 
     X, y = CREATE_SEQUENCES(df, sequence_length=sequence_length)
     print("X shape :", X.shape, "y shape :", y.shape)
