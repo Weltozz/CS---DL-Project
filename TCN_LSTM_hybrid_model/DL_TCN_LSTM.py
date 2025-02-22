@@ -9,7 +9,7 @@ from requests.packages import target
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from tensorflow.keras import layers, models, Input, Model, regularizers
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from tensorflow.keras.layers import Dropout, Conv1D, BatchNormalization
+from tensorflow.keras.layers import Dropout, Conv1D, BatchNormalization, LSTM
 from tcn import TCN
 from sklearn.metrics import r2_score, mean_absolute_error
 
@@ -57,16 +57,19 @@ def CREATE_SEQUENCES(data, sequence_length, target_column='close'):
 def NN_MODEL(input_shape, learning_rate=5e-4):
     model = models.Sequential([
         layers.Input(shape=input_shape),
+
         TCN(
-            nb_filters=30,
-            kernel_size=3,
-            nb_stacks=1,
-            dilations=[1, 2, 4, 8, 16, 32],
-            padding='causal',
-            dropout_rate=0.2,
-            return_sequences=False
+            nb_filters=4,
+            kernel_size=2,
+            dilations=[1, 2, 4, 8],
+            dropout_rate=0.0,
+            return_sequences=True,
         ),
         BatchNormalization(),
+
+        layers.LSTM(1, return_sequences=False),
+        BatchNormalization(),
+
         layers.Dense(1)
     ])
 
@@ -124,7 +127,7 @@ def main():
         inplace=True
     )
 
-    sequence_length = 10  # nombre de features pour l'entrainement (nombre de jours d'entrée)
+    sequence_length = 2000  # nombre de features pour l'entrainement (nombre de jours d'entrée)
 
     X, y = CREATE_SEQUENCES(df, sequence_length=sequence_length)
     print("X shape :", X.shape, "y shape :", y.shape)
@@ -150,14 +153,14 @@ def main():
 
     early_stopping = EarlyStopping(
         monitor='val_loss',
-        patience=15,
+        patience=30,
         restore_best_weights=True
     )  # on arrete l'entrainement si la loss ne diminue plus sur plusieurs epochs
 
     reduce_lr = ReduceLROnPlateau(
         monitor='val_loss',
         factor=0.5,
-        patience=5,
+        patience=10,
         verbose=1
     )  # quand la loss ne diminue plus, on baisse le learning rate
 
