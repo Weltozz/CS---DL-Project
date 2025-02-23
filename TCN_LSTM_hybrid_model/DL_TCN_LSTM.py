@@ -5,12 +5,10 @@ import tensorflow as tf
 import ta
 
 from keras.src.layers import BatchNormalization
-from requests.packages import target
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from tensorflow.keras import layers, models, Input, Model, regularizers
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from tensorflow.keras.layers import Dropout, Conv1D, BatchNormalization
-from tensorflow.models import LSTM
+from tensorflow.keras.layers import Dropout, Conv1D, BatchNormalization, LSTM
 from tcn import TCN
 from sklearn.metrics import r2_score, mean_absolute_error
 
@@ -42,46 +40,31 @@ def ACCURACY_5(y_true, y_pred):
 def CREATE_SEQUENCES(data, sequence_length, target_column='close'):
     X, y, = [], []
     for i in range(sequence_length, len(data)):
-        # Extract sequence for features (dropping the target column)
-        features = data.iloc[i - sequence_length:i].filter(
-            items=[col for col in data.columns if col != target_column]
-        ).values
+        features = data.iloc[i - sequence_length:i].values
         X.append(features)
 
-        # Extract future horizon for targets
         targets = data.iloc[i][target_column]
         y.append(targets)
 
     return np.array(X), np.array(y)
 
 
-def NN_MODEL(input_shape, learning_rate=0.0005):
+def NN_MODEL(input_shape, learning_rate=5e-4):
     model = models.Sequential([
         layers.Input(shape=input_shape),
 
         TCN(
-            nb_filters=18,
-            kernel_size=2,
+            nb_filters=8,
+            kernel_size=6,
             nb_stacks=1,
-            dilations=[1, 2, 4, 8, 16],
+            dilations=[1, 2, 4, 8],
             padding='causal',
             dropout_rate=0.2,
             return_sequences=True
         ),
         BatchNormalization(),
 
-        layers.LSTM(64,return_sequences=True),
-        BatchNormalization(),
-
-        TCN(
-            nb_filters=18,
-            kernel_size=2,
-            nb_stacks=1,
-            dilations=[1, 2, 4, 8, 16],
-            padding='causal',
-            dropout_rate=0.2,
-            return_sequences=False
-        ),
+        layers.LSTM(1,return_sequences=False),
         BatchNormalization(),
 
         layers.Dense(1)
@@ -104,7 +87,7 @@ def NN_MODEL(input_shape, learning_rate=0.0005):
 
 def main():
     df = pd.read_csv(
-        "/Users/welto/PycharmProjects/company_brandname/technical-and-fundamental-analysis-on-stock-markets/Datasets/NASDAQ_100.csv")
+        "Datasets/NASDAQ_100.csv")
     df['sma_20'] = df['close'].rolling(window=20).mean()
     df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
     df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
@@ -141,7 +124,7 @@ def main():
         inplace=True
     )
 
-    sequence_length = 2000  # nombre de features pour l'entrainement (nombre de jours d'entrée)
+    sequence_length = 60  # nombre de features pour l'entrainement (nombre de jours d'entrée)
 
     X, y = CREATE_SEQUENCES(df, sequence_length=sequence_length)
     print("X shape :", X.shape, "y shape :", y.shape)
@@ -167,14 +150,14 @@ def main():
 
     early_stopping = EarlyStopping(
         monitor='val_loss',
-        patience=15,
+        patience=20,
         restore_best_weights=True
     )  # on arrete l'entrainement si la loss ne diminue plus sur plusieurs epochs
 
     reduce_lr = ReduceLROnPlateau(
         monitor='val_loss',
         factor=0.5,
-        patience=5,
+        patience=10,
         verbose=1
     )  # quand la loss ne diminue plus, on baisse le learning rate
 
