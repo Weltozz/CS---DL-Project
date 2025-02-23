@@ -5,6 +5,7 @@ import tensorflow as tf
 import ta
 
 from keras.src.layers import BatchNormalization
+from requests.packages import target
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from tensorflow.keras import layers, models, Input, Model, regularizers
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -40,9 +41,13 @@ def ACCURACY_5(y_true, y_pred):
 def CREATE_SEQUENCES(data, sequence_length, target_column='close'):
     X, y, = [], []
     for i in range(sequence_length, len(data)):
-        features = data.iloc[i - sequence_length:i].values
+        # Extract sequence for features (dropping the target column)
+        features = data.iloc[i - sequence_length:i].filter(
+            items=[col for col in data.columns if col != target_column]
+        ).values
         X.append(features)
 
+        # Extract future horizon for targets
         targets = data.iloc[i][target_column]
         y.append(targets)
 
@@ -54,17 +59,15 @@ def NN_MODEL(input_shape, learning_rate=5e-4):
         layers.Input(shape=input_shape),
 
         TCN(
-            nb_filters=8,
-            kernel_size=6,
-            nb_stacks=1,
+            nb_filters=4,
+            kernel_size=2,
             dilations=[1, 2, 4, 8],
-            padding='causal',
-            dropout_rate=0.2,
-            return_sequences=True
+            dropout_rate=0.0,
+            return_sequences=True,
         ),
         BatchNormalization(),
 
-        layers.LSTM(1,return_sequences=False),
+        layers.LSTM(1, return_sequences=False),
         BatchNormalization(),
 
         layers.Dense(1)
@@ -87,7 +90,7 @@ def NN_MODEL(input_shape, learning_rate=5e-4):
 
 def main():
     df = pd.read_csv(
-        "Datasets/NASDAQ_100.csv")
+        "/Users/welto/PycharmProjects/company_brandname/technical-and-fundamental-analysis-on-stock-markets/Datasets/NASDAQ_100.csv")
     df['sma_20'] = df['close'].rolling(window=20).mean()
     df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
     df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
@@ -124,7 +127,7 @@ def main():
         inplace=True
     )
 
-    sequence_length = 60  # nombre de features pour l'entrainement (nombre de jours d'entrée)
+    sequence_length = 2000  # nombre de features pour l'entrainement (nombre de jours d'entrée)
 
     X, y = CREATE_SEQUENCES(df, sequence_length=sequence_length)
     print("X shape :", X.shape, "y shape :", y.shape)
@@ -150,7 +153,7 @@ def main():
 
     early_stopping = EarlyStopping(
         monitor='val_loss',
-        patience=20,
+        patience=30,
         restore_best_weights=True
     )  # on arrete l'entrainement si la loss ne diminue plus sur plusieurs epochs
 
